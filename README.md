@@ -1,0 +1,1 @@
+Baseline methods in paper "SuctionNet-1Billion:  A  Large-Scale  Benchmark  for  Suction  Grasping" 

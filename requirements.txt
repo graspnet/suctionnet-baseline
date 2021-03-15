@@ -1,0 +1,11 @@
+torch
+torchvision
+numpy
+pillow
+scikit-learn
+tqdm
+matplotlib
+visdom
+open3d
+multiprocess
+opencv-python
