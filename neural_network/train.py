@@ -1,15 +1,10 @@
 import os
 import torch
-import time
 import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 import argparse
-import importlib
-from utils.pytorch_utils import BNMomentumScheduler
 from suctionnet.suctionnet_dataset import SuctionNetDataset
 import ConvNet
 import DeepLabV3Plus.network as network
@@ -107,7 +102,8 @@ model_map = {
         'deeplabv3plus_resnet101': network.deeplabv3plus_resnet101,
         'deeplabv3_mobilenet': network.deeplabv3_mobilenet,
         'deeplabv3plus_mobilenet': network.deeplabv3plus_mobilenet,
-        'convnet_resnet101': ConvNet.convnet_resnet101
+        'convnet_resnet101': ConvNet.convnet_resnet101,
+        'deeplabv3plus_resnet101_depth': network.deeplabv3plus_resnet101_depth
     }
 net = model_map[FLAGS.model](num_classes=FLAGS.num_classes, output_stride=FLAGS.output_stride, pretrained_backbone=True)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -183,6 +179,8 @@ def train_one_epoch():
         if FLAGS.model == 'convnet_resnet101':
             depths = depths.unsqueeze(-1).repeat([1, 1, 1, 3])
             rgbds = torch.cat([rgbs, depths], dim=-1)
+        elif 'depth' in FLAGS.model:
+            rgbds = depths.unsqueeze(-1)
         else:
             rgbds = torch.cat([rgbs, depths.unsqueeze(-1)], dim=-1)
         
@@ -232,6 +230,8 @@ def eval_one_epoch():
         if FLAGS.model == 'convnet_resnet101':
             depths = depths.unsqueeze(-1).repeat([1, 1, 1, 3])
             rgbds = torch.cat([rgbs, depths], dim=-1)
+        elif 'depth' in FLAGS.model:
+            rgbds = depths.unsqueeze(-1)
         else:
             rgbds = torch.cat([rgbs, depths.unsqueeze(-1)], dim=-1)
         rgbds = rgbds.permute(0, 3, 1, 2)

@@ -72,7 +72,8 @@ model_map = {
         'deeplabv3plus_resnet101': network.deeplabv3plus_resnet101,
         'deeplabv3_mobilenet': network.deeplabv3_mobilenet,
         'deeplabv3plus_mobilenet': network.deeplabv3plus_mobilenet,
-        'convnet_resnet101': ConvNet.convnet_resnet101
+        'convnet_resnet101': ConvNet.convnet_resnet101,
+        'deeplabv3plus_resnet101_depth': network.deeplabv3plus_resnet101_depth
     }
 net = model_map[FLAGS.model](num_classes=FLAGS.num_classes, output_stride=FLAGS.output_stride)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -268,6 +269,8 @@ def inference_one_view(rgb_file, depth_file, meta_file, scene_idx, anno_idx):
     if FLAGS.model == 'convnet_resnet101':
         depth = depth.unsqueeze(-1).repeat([1, 1, 3])
         rgbd = torch.cat([rgb, depth], dim=-1).unsqueeze(0)
+    elif 'depth' in FLAGS.model:
+        rgbd = depth.unsqueeze(-1).unsqueeze(0)
     else:
         rgbd = torch.cat([rgb, depth.unsqueeze(-1)], dim=-1).unsqueeze(0)
     
@@ -381,108 +384,6 @@ def inference_one_view(rgb_file, depth_file, meta_file, scene_idx, anno_idx):
         sampled_file = os.path.join(sampled_dir, '%04d_sampled.png'%anno_idx)
         print('saving:', sampled_file)
         sampled_img.save(sampled_file)      
-
-
-def test_conv(rgb_file, depth_file, meta_file, idx=0):
-
-    rgb = cv2.imread(rgb_file).astype(np.float32) / 255.0
-    depth = cv2.imread(depth_file, cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000.0
-    rgb, depth = torch.from_numpy(rgb), torch.from_numpy(depth)
-    
-    depth = torch.clamp(depth, 0, 1)
-    rgbd = torch.cat([rgb, depth.unsqueeze(-1)], dim=-1).unsqueeze(0)
-    rgbd = rgbd.permute(0, 3, 1, 2)
-    # print('rgbd:', rgbd.shape)
-    rgbd = rgbd.to(device)
-
-    net.eval()
-    tic = time.time()
-    with torch.no_grad():
-        pred = net(rgbd)
-    toc = time.time()
-    print('inference time:', toc - tic)
-
-    tic = time.time()
-    heatmap = (pred[0, 0].clamp(0, 1) * pred[0, 1].clamp(0, 1)).cpu().numpy()
-    
-    rgb_img = rgbd[0].permute(1, 2, 0)[..., :3].cpu().numpy()
-    rgb_img *= 255
-    
-    score = heatmap * 255
-    score_img = cv2.applyColorMap(score.astype(np.uint8), cv2.COLORMAP_RAINBOW)
-    score_img = score_img * 0.5 + rgb_img * 0.5
-    score_img = score_img.astype(np.uint8)
-    score_img = Image.fromarray(score_img)
-
-    score_dir = os.path.join(SAVE_PATH, 'visu', 'heatmaps')
-    os.makedirs(score_dir, exist_ok=True)
-    score_file = os.path.join(score_dir, 'before_%04d.png'%idx)
-    score_img.save(score_file)
-    
-    k_size = 15
-    kernel = uniform_kernel(k_size)
-    kernel = torch.from_numpy(kernel).unsqueeze(0).unsqueeze(0)
-    # print('kernel:', kernel.shape)
-    heatmap = np.pad(heatmap, k_size//2)
-    heatmap = torch.from_numpy(heatmap).unsqueeze(0).unsqueeze(0)
-    # print('heatmap:', heatmap.shape)
-    heatmap = F.conv2d(heatmap, kernel).squeeze().numpy()
-    # heatmap = F.conv2d(heatmap, kernel, padding=(kernel.shape[2] // 2, kernel.shape[3] // 2)).squeeze().numpy()
-    # heatmap = conv2d_np(kernel, heatmap)
-    
-    toc = time.time()
-    print('conv time:', toc-tic)
-
-    score = heatmap * 255
-    score_img = cv2.applyColorMap(score.astype(np.uint8), cv2.COLORMAP_RAINBOW)
-    score_img = score_img * 0.5 + rgb_img * 0.5
-    score_img = score_img.astype(np.uint8)
-    score_img = Image.fromarray(score_img)
-
-    score_dir = os.path.join(SAVE_PATH, 'visu', 'heatmaps')
-    os.makedirs(score_dir, exist_ok=True)
-    score_file = os.path.join(score_dir, 'after_%04d_31.png'%idx)
-    score_img.save(score_file)
-
-    score = pred[0, 0].clamp(0, 1).cpu().numpy()
-    score_numpy_dir = os.path.join(SAVE_PATH, 'heatmap', 'score_maps')
-    os.makedirs(score_numpy_dir, exist_ok=True)
-    score_numpy_file = os.path.join(score_numpy_dir, '%04d.npz'%idx)
-    print('Saving:', score_numpy_file)
-    np.savez(score_numpy_file, score)
-
-    center = pred[0, 1].clamp(0, 1).cpu().numpy()
-    center_numpy_dir = os.path.join(SAVE_PATH, 'heatmap', 'center_maps')
-    os.makedirs(center_numpy_dir, exist_ok=True)
-    center_numpy_file = os.path.join(center_numpy_dir, '%04d.npz'%idx)
-    print('Saving:', center_numpy_file)
-    np.savez(center_numpy_file, center)
-
-    score *= 255
-    center *= 255
-
-    score_img = cv2.applyColorMap(score.astype(np.uint8), cv2.COLORMAP_RAINBOW)
-    score_img = score_img * 0.5 + rgb_img * 0.5
-    score_img = score_img.astype(np.uint8)
-    score_img = Image.fromarray(score_img)
-
-    center_img = cv2.applyColorMap(center.astype(np.uint8), cv2.COLORMAP_RAINBOW)
-    center_img = center_img * 0.5 + rgb_img * 0.5
-    center_img = center_img.astype(np.uint8)
-    center_img = Image.fromarray(center_img)
-
-    # visu_dir = os.path.join(SAVE_PATH, 'visu', 'scene_%04d'%scene_idx)
-
-    score_dir = os.path.join(SAVE_PATH, 'visu', 'score_maps')
-    os.makedirs(score_dir, exist_ok=True)
-    score_file = os.path.join(score_dir, '%04d.png'%idx)
-    score_img.save(score_file)
-
-    center_dir = os.path.join(SAVE_PATH, 'visu', 'center_maps')
-    os.makedirs(center_dir, exist_ok=True)
-    center_file = os.path.join(center_dir, '%04d.png'%idx)
-    # print('saving:', center_file)
-    center_img.save(center_file)
 
 
 def inference(scene_idx):
