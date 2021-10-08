@@ -2,7 +2,7 @@ import os
 import numpy as np
 from PIL import Image
 import open3d as o3d
-from xmlhandler import xmlReader
+from utils.xmlhandler import xmlReader
 import scipy.io as scio
 from PIL import Image
 import cv2
@@ -11,20 +11,19 @@ from multiprocessing import Process
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_root', default='', help='Directory to save dataset')
-parser.add_argument('--bbox_saveroot', default='', help='Directory to save bbox results')
-parser.add_argument('--center_saveroot', default='', help='Directory to save center results')
-parser.add_argument('--visu_saveroot', default='', help='Directory to save visualizations')
+parser.add_argument('--data_root', default='/DATA2/Benchmark/graspnet', help='Directory to save dataset')
+parser.add_argument('--saveroot', default='/DATA2/Benchmark/suction/center_bbox_test', help='Directory to save bbox results')
 parser.add_argument('--save_visu', action='store_true', help='Whether to save visualizations')
-parser.add_argument('--camera', default='kinect', help='camera to use [default: realsense]')
+parser.add_argument('--camera', default='realsense', help='camera to use [default: realsense]')
+parser.add_argument('--pool_size', type=int, default=10, help='How many threads to use')
 FLAGS = parser.parse_args()
 
 
 DATASET_ROOT = FLAGS.data_root
 scenedir = FLAGS.data_root + '/scenes/scene_{}/{}'
-bbox_saveroot = FLAGS.bbox_saveroot
-center_saveroot = FLAGS.center_saveroot
-visu_saveroot = FLAGS.save_visu
+bbox_saveroot = os.path.join(FLAGS.saveroot, 'bbox_anno')
+center_saveroot = os.path.join(FLAGS.saveroot, 'center_anno')
+visu_saveroot = os.path.join(FLAGS.saveroot, 'visu')
 # mask_saveroot = ''
 
 
@@ -166,6 +165,7 @@ def get_center_bbox(scene_idx, camera='realsense'):
     bbox_list_scene = []
     center_list_scene = []
     mask_list_scene = []
+    
     for anno_idx in range(256):
         # camera_pose = camera_poses[anno_idx]
         # # print('camera pose')
@@ -217,7 +217,7 @@ def get_center_bbox(scene_idx, camera='realsense'):
             # print('center_pix:', center_pix.shape)
             center_list_single.append(center_pix)
             if scene_idx < 10 and FLAGS.save_visu:
-                rgb_image[min_y: max_y, min_x: max_x, :] *= 0.5
+                rgb_image[max(min_y, 0): min(max_y, 720), max(min_x, 0): min(max_x, 1280), :] *= 0.5
                 cv2.circle(rgb_image, (center_x, center_y), 10, (255,0,0), -1)
 
         bbox_single = np.concatenate(bbox_list_single, axis=0)[np.newaxis, :, :]                
@@ -232,7 +232,7 @@ def get_center_bbox(scene_idx, camera='realsense'):
             if (mask_single == 0).sum() == 0:
                 rgb_image = rgb_image.astype(np.uint8)
                 im = Image.fromarray(rgb_image)
-                visu_dir = os.path.join(visu_saveroot, 'scene_'+str(scene_idx), camera, 'visu')
+                visu_dir = os.path.join(visu_saveroot, 'scene_'+str(scene_idx), camera)
                 os.makedirs(visu_dir, exist_ok=True)
                 print('Saving:', visu_dir+'/%04d'%anno_idx+'.png')
                 im.save(visu_dir+'/%04d'%anno_idx+'.png')
@@ -261,10 +261,10 @@ if __name__ == "__main__":
     camera = FLAGS.camera  
 
     scene_list = []
-    for i in range(100, 190):
+    for i in range(0, 100):
         scene_list.append(i)
 
-    pool_size = 10
+    pool_size = FLAGS.pool_size
     pool_size = min(pool_size, len(scene_list))
     pool = []
     for _ in range(pool_size):

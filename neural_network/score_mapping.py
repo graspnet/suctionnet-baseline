@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from PIL import Image
-from xmlhandler import xmlReader
+from utils.xmlhandler import xmlReader
 import scipy.io as scio
 from PIL import Image
 import cv2
@@ -13,7 +13,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--data_root', default='', help='Directory to save dataset')
 parser.add_argument('--saveroot', default='', help='Directory to save score map results')
 parser.add_argument('--save_visu', action='store_true', help='Whether to save visualizations')
-parser.add_argument('--camera', default='kinect', help='camera to use [default: realsense]')
+parser.add_argument('--camera', default='realsense', help='Camera to use [default: realsense]')
+parser.add_argument('--sigma', type=int, default=4, help='Gaussian Kernel sigma')
+parser.add_argument('--pool_size', type=int, default=10, help='How many threads to use')
 FLAGS = parser.parse_args()
 
 
@@ -175,7 +177,7 @@ def uniform_kernel(kernel_size):
 
     return kernel
 
-def drawGaussian(img, pt, score, size, sigma=1):
+def drawGaussian(img, pt, score, sigma=1):
     """Draw 2d gaussian on input image.
     Parameters
     ----------
@@ -192,8 +194,8 @@ def drawGaussian(img, pt, score, size, sigma=1):
     """
     # img = to_numpy(img)
     tmp_img = np.zeros([img.shape[0], img.shape[1]], dtype=np.float32)
-    # tmpSize = 3 * sigma
-    tmpSize = size // 2
+    tmpSize = 3 * sigma
+    # tmpSize = size // 2
     # Check that any part of the gaussian is in-bounds
     ul = [int(pt[0] - tmpSize), int(pt[1] - tmpSize)]
     br = [int(pt[0] + tmpSize + 1), int(pt[1] + tmpSize + 1)]
@@ -203,7 +205,7 @@ def drawGaussian(img, pt, score, size, sigma=1):
         return img
 
     # Generate gaussian
-    # size = 2 * tmpSize + 1
+    size = 2 * tmpSize + 1
     x = np.arange(0, size, 1, float)
     # print('x:', x.shape)
     y = x[:, np.newaxis]
@@ -287,12 +289,14 @@ def score_mapping(scene_idx, camera):
             # print('depth:', depth.shape)
             # print(x)
             # print(y)
+
             valid_idx = (y >= 0 ) & (y < 720) & (x >= 0 ) & (x < 1280)
             valid_y = y[valid_idx]
             valid_x = x[valid_idx]
             valid_depth = depth[valid_idx]
             if valid_depth.shape[0] == 0:
                 continue
+            
             # print('valid_depth:', valid_depth.shape)
             valid_score = scores[valid_idx]
             valid_colli = collision[valid_idx]
@@ -316,7 +320,7 @@ def score_mapping(scene_idx, camera):
                 score = unique_score[i]
                 # score = score * 2 - 1
                 coord = [unique_coord[i, 0], unique_coord[i, 1]]
-                drawGaussian(score_image, coord, score, 25,4)
+                drawGaussian(score_image, coord, score, FLAGS.sigma)
 
         # k_size = 31
         # sigma = 5
@@ -373,7 +377,7 @@ if __name__ == "__main__":
         scene_list.append(i)
 
     # scene_list = [0]
-    pool_size = 30
+    pool_size = FLAGS.pool_size
     pool_size = min(pool_size, len(scene_list))
     pool = []
     for _ in range(pool_size):
