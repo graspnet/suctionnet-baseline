@@ -16,7 +16,7 @@ parser.add_argument('--model', default='deeplabv3plus_resnet101', help='Model fi
 parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint path [default: None]')
 parser.add_argument("--num_classes", type=int, default=2)
 parser.add_argument("--output_stride", type=int, default=16, choices=[8, 16])
-parser.add_argument('--camera', default='kinect', help='Camera name. kinect or realsense. [default: realsense]')
+parser.add_argument('--camera', default='realsense', help='Camera name. kinect or realsense. [default: realsense]')
 parser.add_argument('--log_dir', default='/DATA2/Benchmark/suction/models/log_kinectV6', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--data_root', default='/DATA2/Benchmark/graspnet', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--label_root', default='/ssd1/hanwen/grasping/graspnet_label', help='Dump dir to save model checkpoint [default: log]')
@@ -84,14 +84,11 @@ def my_worker_init_fn(worker_id):
 #     valid_obj_idxs.append(i)
 
 TRAIN_DATASET = SuctionNetDataset(DATA_ROOT, LABEL_ROOT, camera=CAMERA, split='train', input_size=(480, 480))
-TEST_DATASET = SuctionNetDataset(DATA_ROOT, LABEL_ROOT, camera=CAMERA, split='test_seen')
 
-print(len(TRAIN_DATASET), len(TEST_DATASET))
+print(len(TRAIN_DATASET))
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True,
     num_workers=4, drop_last=True, worker_init_fn=my_worker_init_fn)
-TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False,
-    num_workers=4, worker_init_fn=my_worker_init_fn)
-print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
+print(len(TRAIN_DATALOADER))
 
 # MODEL = importlib.import_module(FLAGS.model)
 # TODO
@@ -219,52 +216,10 @@ def train_one_epoch():
                         score_loss=score_losses, center_loss=center_losses, loss=losses))
     
 
-def eval_one_epoch():
-    losses = AverageMeter()
-    score_losses = AverageMeter()
-    center_losses = AverageMeter()
-
-    net.eval()
-    for batch_idx, (rgbs, depths, scores, wrenches, _) in enumerate(TEST_DATALOADER):
-        depths = torch.clamp(depths, 0, 1)
-        if FLAGS.model == 'convnet_resnet101':
-            depths = depths.unsqueeze(-1).repeat([1, 1, 1, 3])
-            rgbds = torch.cat([rgbs, depths], dim=-1)
-        elif 'depth' in FLAGS.model:
-            rgbds = depths.unsqueeze(-1)
-        else:
-            rgbds = torch.cat([rgbs, depths.unsqueeze(-1)], dim=-1)
-        rgbds = rgbds.permute(0, 3, 1, 2)
-        rgbds = rgbds.to(device)
-        scores = scores.to(device)
-        wrenches = wrenches.to(device)
-        
-        with torch.no_grad():
-            pred = net(rgbds)
-            pred = pred.squeeze(1)
-            score_loss = criterion(pred[:, 0, ...], scores)
-            wrench_loss = criterion(pred[:, 1, ...], wrenches)
-            loss = score_loss + wrench_loss
-            losses.update(loss.item(), rgbs.size(0))
-            score_losses.update(score_loss.item(), rgbs.size(0))
-            center_losses.update(wrench_loss.item(), rgbs.size(0))
-        
-        if (batch_idx+1) % 10 == 0:
-            print('Eval epoch: [{0}][{1}/{2}]'.format(EPOCH_CNT, batch_idx+1, len(TEST_DATALOADER)))
-    
-    log_string( 'Eval Epoch: [{0}][{1}/{2}] | '
-                'Score Loss: {score_loss.avg:.4f} | '
-                'Center Loss: {center_loss.avg:.4f} | '
-                'Total Loss: {loss.avg:.4f}'.format(
-                EPOCH_CNT, batch_idx+1, len(TEST_DATALOADER),
-                score_loss=score_losses, center_loss=center_losses, loss=losses))
-
-    return losses.avg
-
 
 def train():
     global EPOCH_CNT
-    min_eval_loss = 10000000
+    # min_eval_loss = 10000000
     for epoch in range(EPOCH_CNT, MAX_EPOCH):
         EPOCH_CNT = epoch
         log_string('**** TRAIN EPOCH %03d ****' % (epoch))
@@ -272,21 +227,15 @@ def train():
         # log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
         train_one_epoch()
 
-        if EPOCH_CNT % 10 == 0: # Eval every 10 epochs
-            log_string('**** EVAL EPOCH %03d ****' % (epoch))
-            loss = eval_one_epoch()
+        if EPOCH_CNT % 10 == 0: # save every 10 epochs
 
-            if loss < min_eval_loss:
-                min_eval_loss = loss
-
-                save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'loss': loss,}
-                try: # with nn.DataParallel() the net is added as a submodule of DataParallel
-                    save_dict['model_state_dict'] = net.state_dict()
-                except:
-                    save_dict['model_state_dict'] = net.state_dict()
-                torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint_'+str(epoch)))
+            save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+                        'optimizer_state_dict': optimizer.state_dict()}
+            try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+                save_dict['model_state_dict'] = net.state_dict()
+            except:
+                save_dict['model_state_dict'] = net.state_dict()
+            torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint_'+str(epoch)))
             
 
 
