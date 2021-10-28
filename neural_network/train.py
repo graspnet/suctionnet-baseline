@@ -20,8 +20,6 @@ parser.add_argument('--camera', default='realsense', help='Camera name. kinect o
 parser.add_argument('--log_dir', default='/DATA2/Benchmark/suction/models/log_kinectV6', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--data_root', default='/DATA2/Benchmark/graspnet', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--label_root', default='/ssd1/hanwen/grasping/graspnet_label', help='Dump dir to save model checkpoint [default: log]')
-# parser.add_argument('--camera', default='realsense', help='Camera name. kinect or realsense. [default: realsense]')
-# parser.add_argument('--log_dir', default='/DATA2/Benchmark/suction/models/log_realsenseV2', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--max_epoch', type=int, default=100, help='Epoch to run [default: 180]')
 parser.add_argument('--batch_size', type=int, default=24, help='Batch Size during training [default: 8]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
@@ -75,13 +73,6 @@ def my_worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
     pass
 
-# data_root = '/DATA2/Benchmark/graspnet'
-# label_root = '/ssd1/hanwen/grasping/graspnet_label'
-# label_root = '/DATA2/Benchmark/suction/graspnet_label'
-
-# valid_obj_idxs = []
-# for i in range(75):
-#     valid_obj_idxs.append(i)
 
 TRAIN_DATASET = SuctionNetDataset(DATA_ROOT, LABEL_ROOT, camera=CAMERA, split='train', input_size=(480, 480))
 
@@ -106,7 +97,6 @@ net = model_map[FLAGS.model](num_classes=FLAGS.num_classes, output_stride=FLAGS.
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 if torch.cuda.device_count() > 1:
     print("Let's use", torch.cuda.device_count(), "GPUs!")
-    # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
     net = nn.DataParallel(net)
 
 EPOCH_CNT = 0
@@ -121,8 +111,6 @@ net.to(device)
 
 criterion = nn.MSELoss()
 
-# for name in net.state_dict():
-#    print(name)
 
 if FLAGS.finetune:
     if 'deeplabv3' in FLAGS.model:
@@ -168,7 +156,7 @@ def train_one_epoch():
     center_losses = AverageMeter()
 
     adjust_learning_rate(optimizer, EPOCH_CNT)
-    # bnm_scheduler.step() # decay BN momentum
+    
     net.train()
     for batch_idx, (rgbs, depths, scores, wrenches, _) in enumerate(TRAIN_DATALOADER):
         optimizer.zero_grad()
@@ -182,11 +170,8 @@ def train_one_epoch():
             rgbds = torch.cat([rgbs, depths.unsqueeze(-1)], dim=-1)
         
         rgbds = rgbds.permute(0, 3, 1, 2)
-        # print('rgbd:', rgbds.shape)
         rgbds = rgbds.to(device)
-        # print('rgbds:', rgbds.dtype)
         scores = scores.to(device)
-        # print('scores:', scores.dtype)
         wrenches = wrenches.to(device)
         
         pred = net(rgbds)
@@ -194,13 +179,9 @@ def train_one_epoch():
         score_loss = criterion(pred[:, 0, ...], scores)
         wrench_loss = criterion(pred[:, 1, ...], wrenches)
         loss = score_loss + wrench_loss
-        # loss = score_loss
 
-        # tic = time.time()
         loss.backward()
         optimizer.step()
-        # toc = time.time()
-        # print('gradient descent time:', toc-tic)
 
         losses.update(loss.item(), rgbs.size(0))
         score_losses.update(score_loss.item(), rgbs.size(0))
@@ -219,12 +200,11 @@ def train_one_epoch():
 
 def train():
     global EPOCH_CNT
-    # min_eval_loss = 10000000
+
     for epoch in range(EPOCH_CNT, MAX_EPOCH):
         EPOCH_CNT = epoch
         log_string('**** TRAIN EPOCH %03d ****' % (epoch))
         log_string('Current learning rate: %f'%(get_current_lr(epoch)))
-        # log_string('Current BN decay momentum: %f'%(bnm_scheduler.lmbd(bnm_scheduler.last_epoch)))
         train_one_epoch()
 
         if EPOCH_CNT % 10 == 0: # save every 10 epochs

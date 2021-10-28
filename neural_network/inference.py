@@ -1,5 +1,4 @@
 import os
-# import pcl
 import torch
 import time
 import numpy as np
@@ -9,7 +8,6 @@ import scipy.io as scio
 import argparse
 import DeepLabV3Plus.network as network
 import ConvNet
-from multiprocessing import Process
 import torch.nn.functional as F
 from PIL import Image
 import cv2
@@ -77,7 +75,6 @@ model_map = {
     }
 net = model_map[FLAGS.model](num_classes=FLAGS.num_classes, output_stride=FLAGS.output_stride)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
 net = nn.DataParallel(net)
 net.to(device)
    
@@ -87,15 +84,8 @@ if CHECKPOINT_PATH is not None and os.path.isfile(CHECKPOINT_PATH):
     print('Loading model from:')
     print(CHECKPOINT_PATH)
     checkpoint = torch.load(CHECKPOINT_PATH)
-    # print(type(checkpoint['model_state_dict']))
-    # print(checkpoint['model_state_dict'].keys())
-    # print(net.state_dict().keys())
-    net.load_state_dict(checkpoint['model_state_dict'])
     
-    # cpu_state_dict = {}
-    # for key in checkpoint['model_state_dict'].keys():
-    #     cpu_state_dict[key[7:]] = checkpoint['model_state_dict'][key]
-    # net.load_state_dict(cpu_state_dict)
+    net.load_state_dict(checkpoint['model_state_dict'])
 
     EPOCH_CNT = checkpoint['epoch']
 
@@ -121,7 +111,6 @@ def create_point_cloud_from_depth_image(depth, camera, organized=True):
     xmap = np.arange(camera.width)
     ymap = np.arange(camera.height)
     xmap, ymap = np.meshgrid(xmap, ymap)
-    # points_z = depth / camera.scale
     points_z = depth
     points_x = (xmap - camera.cx) * points_z / camera.fx
     points_y = (ymap - camera.cy) * points_z / camera.fy
@@ -138,20 +127,16 @@ def grid_sample(pred_score_map, down_rate=20, topk=512):
     for i in range(num_row):
         for j in range(num_col):
             pred_score_grid = pred_score_map[i*down_rate:(i+1)*down_rate, j*down_rate:(j+1)*down_rate]
-            # print('pred_score_grid:', pred_score_grid.shape)
-            max_idx = np.argmax(pred_score_grid)
             
+            max_idx = np.argmax(pred_score_grid)
             max_idx = np.array([max_idx // down_rate, max_idx % down_rate]).astype(np.int32)
             
             max_idx[0] += i*down_rate
             max_idx[1] += j*down_rate
-            # print('max_idx:', max_idx)
             idx_list.append(max_idx[np.newaxis, ...])
     
     idx = np.concatenate(idx_list, axis=0)
-    # print('idx:', idx.shape)
     suction_scores = pred_score_map[idx[:, 0], idx[:, 1]]
-    # print('suction_scores:', suction_scores.shape)
     sort_idx = np.argsort(suction_scores)
     sort_idx = sort_idx[::-1]
 
@@ -192,26 +177,19 @@ def drawGaussian(img, pt, score, sigma=1):
     # Generate gaussian
     size = 2 * tmpSize + 1
     x = np.arange(0, size, 1, float)
-    # print('x:', x.shape)
     y = x[:, np.newaxis]
-    # print('x:', x.shape)
     x0 = y0 = size // 2
-    # The gaussian is not normalized, we want the center value to equal 1
     
-    # print('g:', g.shape)
     # Usable gaussian range
     g_x = max(0, -ul[0]), min(br[0], img.shape[1]) - ul[0]
     g_y = max(0, -ul[1]), min(br[1], img.shape[0]) - ul[1]
-    # Image range
     img_x = max(0, ul[0]), min(br[0], img.shape[1])
     img_y = max(0, ul[1]), min(br[1], img.shape[0])
 
     g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2)) * score
     g = g[g_y[0]:g_y[1], g_x[0]:g_x[1]]
-    # g = np.concatenate([g[..., np.newaxis], np.zeros([g.shape[0], g.shape[1], 2], dtype=np.float32)], axis=-1)
 
     tmp_img[img_y[0]:img_y[1], img_x[0]:img_x[1]] = g
-    # img[img_y[0]:img_y[1], img_x[0]:img_x[1]] = g
     img += tmp_img
 
 def get_suction_from_heatmap(depth_img, heatmap, camera_info):
@@ -220,11 +198,8 @@ def get_suction_from_heatmap(depth_img, heatmap, camera_info):
     if len(depth_img.shape) == 3:
         depth_img = depth_img[..., 0]
     point_cloud = create_point_cloud_from_depth_image(depth_img, camera_info)
-    # height, width, _ = point_cloud.shape
     
     suction_points = point_cloud[idx0, idx1, :]
-    # toc_sub = time.time()
-    # print('create point cloud time: ', toc_sub - tic_sub)
 
     tic_sub = time.time()
     
@@ -245,9 +220,6 @@ def get_suction_from_heatmap(depth_img, heatmap, camera_info):
 
     suction_arr = np.concatenate([suction_scores[..., np.newaxis], suction_normals, suction_points], axis=-1)
 
-    toc = time.time()
-
-    # print('get suction total time: ', toc - tic)
     return suction_arr, idx0, idx1
 
 def inference_one_view(rgb_file, depth_file, meta_file, scene_idx, anno_idx):
@@ -275,7 +247,6 @@ def inference_one_view(rgb_file, depth_file, meta_file, scene_idx, anno_idx):
         rgbd = torch.cat([rgb, depth.unsqueeze(-1)], dim=-1).unsqueeze(0)
     
     rgbd = rgbd.permute(0, 3, 1, 2)
-    # print('rgbd:', rgbd.shape)
     rgbd = rgbd.to(device)
 
     net.eval()
@@ -286,23 +257,12 @@ def inference_one_view(rgb_file, depth_file, meta_file, scene_idx, anno_idx):
     toc = time.time()
     print('inference time:', toc - tic)
 
-    # tic = time.time()
     heatmap = (pred[0, 0] * pred[0, 1]).cpu().unsqueeze(0).unsqueeze(0)
-    
-    # rgb_img = rgbd[0].permute(1, 2, 0)[..., :3].cpu().numpy()
-    # rgb_img *= 255
     
     k_size = 15
     kernel = uniform_kernel(k_size)
     kernel = torch.from_numpy(kernel).unsqueeze(0).unsqueeze(0)
-    # print('kernel:', kernel.shape)
-    # heatmap = torch.from_numpy(heatmap).unsqueeze(0).unsqueeze(0)
-    # print('heatmap:', heatmap.shape)
     heatmap = F.conv2d(heatmap, kernel, padding=(kernel.shape[2] // 2, kernel.shape[3] // 2)).squeeze().numpy()
-    # heatmap = conv2d_np(kernel, heatmap)
-    
-    # toc = time.time()
-    # print('conv time:', toc-tic)
 
     suctions, idx0, idx1 = get_suction_from_heatmap(depth.numpy(), heatmap, camera_info)
     
@@ -318,18 +278,7 @@ def inference_one_view(rgb_file, depth_file, meta_file, scene_idx, anno_idx):
         
         # predictions
         score = pred[0, 0].clamp(0, 1).cpu().numpy()
-        # score_numpy_dir = os.path.join(SAVE_PATH, 'heatmap', 'score_maps')
-        # os.makedirs(score_numpy_dir, exist_ok=True)
-        # score_numpy_file = os.path.join(score_numpy_dir, '%04d.npz'%anno_idx)
-        # print('Saving:', score_numpy_file)
-        # np.savez(score_numpy_file, score)
-
         center = pred[0, 1].clamp(0, 1).cpu().numpy()
-        # center_numpy_dir = os.path.join(SAVE_PATH, 'heatmap', 'center_maps')
-        # os.makedirs(center_numpy_dir, exist_ok=True)
-        # center_numpy_file = os.path.join(center_numpy_dir, '%04d.npz'%anno_idx)
-        # print('Saving:', center_numpy_file)
-        # np.savez(center_numpy_file, center)
 
         score *= 255
         center *= 255
@@ -400,6 +349,9 @@ def inference(scene_idx):
 if __name__ == "__main__":
     
     scene_list = []
+    if split == 'test':
+        for i in range(100, 190):
+            scene_list.append(i)
     if split == 'test_seen':
         for i in range(100, 130):
             scene_list.append(i)
@@ -413,37 +365,6 @@ if __name__ == "__main__":
         print('invalid split')
     
     for scene_idx in scene_list:
-        # pass
         inference(scene_idx)
-    
-    # scene_list = [130, 131]
-    # for scene_idx in scene_list:
-    #     # pass
-    #     inference(scene_idx)
-    # pool_size = 1
-    # pool_size = min(pool_size, len(scene_list))
-    # pool = []
-    # for _ in range(pool_size):
-    #     scene_idx = scene_list.pop(0)
-    #     # save_dir = '/data/fred/graspnet/scene_mask2/scene_{}'.format(scene_idx)
-    #     pool.append(Process(target=inference, args=(scene_idx,)))
-    # [p.start() for p in pool]
-    
-    # while len(scene_list) > 0:
-    #     for idx, p in enumerate(pool):
-    #         if not p.is_alive():
-    #             pool.pop(idx)
-    #             scene_idx = scene_list.pop(0)
-    #             # save_dir = '/data/fred/graspnet/scene_mask2/scene_{}'.format(scene_idx)
-    #             p = Process(target=inference, args=(scene_idx,))
-    #             p.start()
-    #             pool.append(p)
-    #             break
-    
-    # while len(pool) > 0:
-    #     for idx, p in enumerate(pool):
-    #         if not p.is_alive():
-    #             pool.pop(idx)
-    #             break
     
 

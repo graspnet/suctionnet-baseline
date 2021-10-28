@@ -222,8 +222,10 @@ def inference(scene_idx):
 if __name__ == "__main__":
     
     scene_list = []
-    
-    if split == 'test_seen':
+    if split == 'test':
+        for i in range(100, 190):
+            scene_list.append(i)
+    elif split == 'test_seen':
         for i in range(100, 130):
             scene_list.append(i)
     elif split == 'test_similiar':
