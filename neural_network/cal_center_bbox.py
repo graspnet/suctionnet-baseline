@@ -221,7 +221,7 @@ def get_center_bbox(scene_idx, camera='realsense'):
                 cv2.circle(rgb_image, (center_x, center_y), 10, (255,0,0), -1)
 
         bbox_single = np.concatenate(bbox_list_single, axis=0)[np.newaxis, :, :]                
-        mask_single = np.array(mask_list_single, dtype=np.bool)[np.newaxis, :]
+        mask_single = np.array(mask_list_single, dtype=bool)[np.newaxis, :]
         bbox_list_scene.append(bbox_single)
         mask_list_scene.append(mask_single)
         # print('concatenate:', np.concatenate(center_list_single, axis=0).shape)
